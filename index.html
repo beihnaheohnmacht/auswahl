@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Auswahl</title>
+<style>
+  :root {
+    --bg: #f4f6f5; --card: #ffffff; --text: #17201c; --muted: #66726c;
+    --line: #dde4e0; --accent: #0f6b53; --accent-soft: #dcf1ea; --accent-text: #0b4f3d; --chip: #eef1ef;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #101513; --card: #19201d; --text: #e9efec; --muted: #9aa8a1;
+      --line: #2b3531; --accent: #5fd0ae; --accent-soft: #173b30; --accent-text: #a9ecd6; --chip: #242d29;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 26px; line-height: 1.2; margin: 0 0 4px; text-wrap: balance; }
+  .sub { color: var(--muted); font-size: 14px; margin: 0 0 20px; }
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+  .filters button {
+    font: inherit; font-size: 14px; padding: 6px 14px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--card); color: var(--text);
+  }
+  .filters button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 600; }
+  .item { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 14px; }
+  .top { display: flex; gap: 14px; }
+  .top img { width: 84px; height: 84px; object-fit: cover; border-radius: 10px; flex: none; background: var(--chip); }
+  .top h2 { font-size: 18px; line-height: 1.25; margin: 0 0 4px; overflow-wrap: anywhere; }
+  .facts { color: var(--muted); font-size: 14px; display: flex; flex-wrap: wrap; gap: 2px 12px; font-variant-numeric: tabular-nums; }
+  .facts strong { color: var(--text); }
+  .who { display: inline-block; font-size: 12px; font-weight: 600; color: var(--accent-text); background: var(--accent-soft); border-radius: 6px; padding: 1px 8px; margin-bottom: 6px; }
+  .group { margin-top: 12px; }
+  .group h3 { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin: 0 0 5px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { background: var(--chip); border-radius: 999px; padding: 2px 11px; font-size: 14px; }
+  .chip.effect { background: var(--accent-soft); color: var(--accent-text); font-weight: 600; font-size: 15px; padding: 3px 12px; }
+  .note { margin-top: 12px; padding: 8px 12px; border-left: 3px solid var(--accent); background: var(--chip); border-radius: 0 8px 8px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .links { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  .links a { flex: 1 1 160px; text-align: center; text-decoration: none; font-weight: 600; font-size: 15px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--accent); color: var(--accent); }
+  .links a.primary { background: var(--accent); color: var(--bg); }
+  .empty { color: var(--muted); padding: 40px 0; text-align: center; }
+  footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
+</style>
+</head>
+<body>
+<main id="app"><p class="empty">Wird geladen …</p></main>
+<script>
+(async () => {
+  const app = document.getElementById('app');
+  const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+  const de = (n, d) => Number(n).toLocaleString('de-DE', { minimumFractionDigits: d, maximumFractionDigits: d });
+  const safeUrl = (u) => (typeof u === 'string' && /^https:\/\//.test(u) ? u : null);
+
+  async function fromHash() {
+    const m = location.hash.match(/d=([A-Za-z0-9_-]+)/);
+    if (!m) return null;
+    const bin = atob(m[1].replace(/-/g, '+').replace(/_/g, '/'));
+    const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    return JSON.parse(await new Response(stream).text());
+  }
+
+  let data = null;
+  try { data = window.__DATA__ || (await fromHash()); } catch (e) { data = null; }
+  app.textContent = '';
+  if (!data || !Array.isArray(data.items)) {
+    app.append(el('p', 'empty', 'Dieser Link enthält keine Auswahl oder ist unvollständig.'));
+    return;
+  }
+
+  const names = Array.isArray(data.names) ? data.names : ['', ''];
+  const whoLabel = (f) => (f === 'a' ? `Für ${names[0]}` : f === 'b' ? `Für ${names[1]}` : 'Für beide');
+  document.title = data.title || 'Auswahl';
+  app.append(el('h1', '', data.title || 'Auswahl'));
+  app.append(el('p', 'sub', `${data.items.length} ${data.items.length === 1 ? 'Sorte' : 'Sorten'}${data.date ? ' · Stand ' + data.date : ''}`));
+
+  const list = el('div');
+  let filter = 'all';
+  const used = new Set(data.items.map((i) => i.for || 'both'));
+  if (used.size > 1) {
+    const bar = el('div', 'filters');
+    const options = [['all', 'Alle'], ['a', names[0]], ['b', names[1]], ['both', 'Beide']].filter(([k, label]) => k === 'all' || (used.has(k) && label));
+    for (const [key, label] of options) {
+      const b = el('button', '', label);
+      b.type = 'button';
+      b.setAttribute('aria-pressed', String(key === filter));
+      b.addEventListener('click', () => {
+        filter = key;
+        bar.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+        render();
+      });
+      bar.append(b);
+    }
+    app.append(bar);
+  }
+  app.append(list);
+
+  function group(parent, title, items, cls) {
+    if (!Array.isArray(items) || !items.length) return;
+    const g = el('div', 'group');
+    g.append(el('h3', '', title));
+    const c = el('div', 'chips');
+    items.forEach((t) => c.append(el('span', 'chip ' + (cls || ''), String(t))));
+    g.append(c);
+    parent.append(g);
+  }
+
+  function render() {
+    list.textContent = '';
+    for (const item of data.items) {
+      const f = item.for || 'both';
+      if (filter !== 'all' && f !== filter) continue;
+      const fz = item.fz || null;
+      const card = el('article', 'item');
+      const top = el('div', 'top');
+      const img = safeUrl(item.image);
+      if (img) { const i = el('img'); i.src = img; i.alt = ''; i.loading = 'lazy'; i.onerror = () => i.remove(); top.append(i); }
+      const info = el('div');
+      if (names[0] || names[1]) info.append(el('span', 'who', whoLabel(f)));
+      info.append(el('h2', '', item.title || ''));
+      const facts = el('div', 'facts');
+      const fact = (strong, rest) => { const s = el('span'); s.append(el('strong', '', strong)); if (rest) s.append(' ' + rest); facts.append(s); };
+      if (item.price != null) fact(de(item.price, 2) + ' €', '/ g');
+      if (fz && fz.count) fact('★ ' + de(fz.rating, 1), `(${fz.count} Bewertungen)`);
+      if (fz && fz.thc != null) fact('THC ' + de(fz.thc, 0) + ' %', fz.cbd != null ? '· CBD ' + de(fz.cbd, 0) + ' %' : '');
+      if (fz && (fz.genetic || fz.dominance)) fact(fz.genetic || '', fz.dominance ? `(${fz.dominance}-dominant)` : '');
+      info.append(facts);
+      top.append(info);
+      card.append(top);
+      if (fz) {
+        group(card, 'Effekte', fz.effects, 'effect');
+        group(card, 'Aroma und Geschmack', fz.tastes);
+        group(card, 'Terpene', fz.terpenes);
+        group(card, 'Hilft laut Nutzern bei', fz.medical);
+      }
+      if (item.note) card.append(el('div', 'note', item.note));
+      const links = el('div', 'links');
+      const shop = safeUrl(item.url);
+      if (shop) { const a = el('a', 'primary', 'Bei CanDoc ansehen'); a.href = shop; a.target = '_blank'; a.rel = 'noopener'; links.append(a); }
+      const rev = fz && safeUrl(fz.url);
+      if (rev) { const a = el('a', '', 'Rezensionen auf flowzz'); a.href = rev; a.target = '_blank'; a.rel = 'noopener'; links.append(a); }
+      card.append(links);
+      list.append(card);
+    }
+    if (!list.children.length) list.append(el('p', 'empty', 'Keine Einträge für diesen Filter.'));
+  }
+  render();
+  app.append(el('footer', '', 'Effekte, Aromen und Bewertungen stammen aus Nutzerangaben auf flowzz.com und ersetzen keine ärztliche Beratung.'));
+})();
+</script>
+</body>
+</html>
