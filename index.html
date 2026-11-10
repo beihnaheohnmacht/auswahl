@@ -44,6 +44,15 @@
   .links a { flex: 1 1 160px; text-align: center; text-decoration: none; font-weight: 600; font-size: 15px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--accent); color: var(--accent); }
   .links a.primary { background: var(--accent); color: var(--bg); }
   .empty { color: var(--muted); padding: 40px 0; text-align: center; }
+  .want { display: block; width: 100%; margin-top: 14px; font: inherit; font-weight: 700; font-size: 16px; padding: 11px 12px; border-radius: 10px; cursor: pointer; border: 2px dashed var(--accent); background: transparent; color: var(--accent); }
+  .want[aria-pressed="true"] { border-style: solid; background: var(--accent); color: var(--bg); }
+  .item.wanted { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .sendbar { position: sticky; bottom: 0; margin: 0 -16px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); background: var(--card); border-top: 1px solid var(--line); display: flex; gap: 12px; align-items: center; }
+  .sendbar span { flex: 1; font-weight: 600; }
+  .sendbar button { font: inherit; font-weight: 700; padding: 10px 16px; border-radius: 10px; border: 0; background: var(--accent); color: var(--bg); cursor: pointer; }
+  .wishlist { padding-left: 20px; font-size: 18px; }
+  .wishlist li { margin: 6px 0; }
+  .hint { color: var(--muted); font-size: 14px; }
   footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
 </style>
 </head>
@@ -56,8 +65,18 @@
   const de = (n, d) => Number(n).toLocaleString('de-DE', { minimumFractionDigits: d, maximumFractionDigits: d });
   const safeUrl = (u) => (typeof u === 'string' && /^https:\/\//.test(u) ? u : null);
 
-  async function fromHash() {
-    const m = location.hash.match(/d=([A-Za-z0-9_-]+)/);
+  window.addEventListener('hashchange', () => location.reload());
+
+  async function encode(obj) {
+    const stream = new Blob([JSON.stringify(obj)]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+    const bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+    let bin = '';
+    for (const b of bytes) bin += String.fromCharCode(b);
+    return btoa(bin).replace(/[+]/g, '-').replace(/[/]/g, '_').replace(/=+$/, '');
+  }
+
+  async function fromHash(key) {
+    const m = location.hash.match(new RegExp(key + '=([A-Za-z0-9_-]+)'));
     if (!m) return null;
     const bin = atob(m[1].replace(/-/g, '+').replace(/_/g, '/'));
     const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
@@ -66,7 +85,20 @@
   }
 
   let data = null;
-  try { data = window.__DATA__ || (await fromHash()); } catch (e) { data = null; }
+  let reply = null;
+  try { reply = await fromHash('w'); } catch (e) { reply = null; }
+  if (reply && Array.isArray(reply.w)) {
+    app.textContent = '';
+    document.title = 'Wünsche';
+    app.append(el('h1', '', 'Wünsche'));
+    app.append(el('p', 'sub', reply.t ? 'aus „' + reply.t + '“' : ''));
+    const ul = el('ul', 'wishlist');
+    reply.w.forEach((x) => ul.append(el('li', '', String(x.t || x.h))));
+    app.append(ul);
+    app.append(el('p', 'hint', 'In Chrome mit der Erweiterung geöffnet, werden diese Wünsche automatisch in die Auswahl übernommen.'));
+    return;
+  }
+  try { data = window.__DATA__ || (await fromHash('d')); } catch (e) { data = null; }
   app.textContent = '';
   if (!data || !Array.isArray(data.items)) {
     app.append(el('p', 'empty', 'Dieser Link enthält keine Auswahl oder ist unvollständig.'));
@@ -81,6 +113,35 @@
 
   const list = el('div');
   let filter = 'all';
+  const canWish = data.items.some((i) => i.h);
+  let wanted = new Set();
+  try { wanted = new Set(JSON.parse(localStorage.getItem('auswahl-wishes') || '[]')); } catch (e) {}
+  wanted = new Set(data.items.map((i) => i.h).filter((h) => h && wanted.has(h)));
+  const sendbar = el('div', 'sendbar');
+  const sendText = el('span');
+  const sendBtn = el('button', '', 'Wünsche senden');
+  sendBtn.type = 'button';
+  sendbar.append(sendText, sendBtn);
+  function updateBar() {
+    try { localStorage.setItem('auswahl-wishes', JSON.stringify([...wanted])); } catch (e) {}
+    sendbar.hidden = !wanted.size;
+    sendText.textContent = wanted.size + (wanted.size === 1 ? ' Sorte ausgewählt' : ' Sorten ausgewählt');
+  }
+  sendBtn.addEventListener('click', async () => {
+    const picks = data.items.filter((i) => wanted.has(i.h)).map((i) => ({ h: i.h, t: i.title }));
+    const base = safeUrl(data.base) || location.href.split('#')[0];
+    const link = base.split('#')[0] + '#w=' + (await encode({ t: data.title || '', w: picks }));
+    const NL = String.fromCharCode(10);
+    const text = 'Meine Wünsche:' + NL + picks.map((p) => '• ' + p.t).join(NL) + NL + NL + link;
+    try {
+      if (navigator.share) { await navigator.share({ text }); return; }
+      await navigator.clipboard.writeText(text);
+      sendText.textContent = 'Kopiert – jetzt in den Chat einfügen';
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;
+      prompt('Diesen Text kopieren und zurückschicken:', text);
+    }
+  });
   const used = new Set(data.items.map((i) => i.for || 'both'));
   if (used.size > 1) {
     const bar = el('div', 'filters');
@@ -145,11 +206,29 @@
       const rev = fz && safeUrl(fz.url);
       if (rev) { const a = el('a', '', 'Rezensionen auf flowzz'); a.href = rev; a.target = '_blank'; a.rel = 'noopener'; links.append(a); }
       card.append(links);
+      if (canWish && item.h) {
+        const want = el('button', 'want');
+        want.type = 'button';
+        const paint = () => {
+          const on = wanted.has(item.h);
+          want.setAttribute('aria-pressed', String(on));
+          want.textContent = on ? '♥ Will ich' : '♡ Will ich';
+          card.classList.toggle('wanted', on);
+        };
+        paint();
+        want.addEventListener('click', () => {
+          if (wanted.has(item.h)) wanted.delete(item.h); else wanted.add(item.h);
+          paint();
+          updateBar();
+        });
+        card.append(want);
+      }
       list.append(card);
     }
     if (!list.children.length) list.append(el('p', 'empty', 'Keine Einträge für diesen Filter.'));
   }
   render();
+  if (canWish) { app.append(sendbar); updateBar(); }
   app.append(el('footer', '', 'Effekte, Aromen und Bewertungen stammen aus Nutzerangaben auf flowzz.com und ersetzen keine ärztliche Beratung.'));
 })();
 </script>
